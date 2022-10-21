@@ -1,5 +1,8 @@
 #include "em_device.h"
 #include "em_chip.h"
+#include "em_cmu.h"
+#include "em_usart.h"
+#include "em_gpio.h"
 
 #include "segmentlcd.h"
 
@@ -8,6 +11,7 @@
 
 SegmentLCD_UpperCharSegments_TypeDef upperCharSegments[SEGMENT_LCD_NUM_OF_UPPER_CHARS];
 SegmentLCD_LowerCharSegments_TypeDef lowerCharSegments[SEGMENT_LCD_NUM_OF_LOWER_CHARS];
+
 
 /*
     --------- 0,a --------     --------- 1,a --------
@@ -41,6 +45,8 @@ struct spaceship {
 	struct position pos;
 	enum direction dir;
 };
+
+volatile char button;
 
 // vízszintes írányban halad az űrhajó
 void horizontal(struct spaceship spaceship) {
@@ -138,6 +144,87 @@ void resetSegment(struct position pos) {
 	    SegmentLCD_LowerSegments(lowerCharSegments);
 }
 
+struct position asteroids(int row, int column) {
+	if(row == 0) {
+	lowerCharSegments[column].a = 1;
+	}
+	else if(row == 1) {
+	lowerCharSegments[column].g = 1;
+	lowerCharSegments[column].m = 1;
+	}
+	else if(row == 2) {
+	lowerCharSegments[column].d = 1;
+	}
+
+	SegmentLCD_LowerSegments(lowerCharSegments);
+
+	struct position pos = {row, column};
+
+	return pos;
+
+}
+
+struct position asteroid1;
+struct position asteroid2;
+struct position asteroid3;
+
+
+void randomgen() {
+
+	int row[3];
+	int column[3];
+	for(int i = 0; i <3; i++) {
+		row[i] = rand()%3;
+		column[i] = rand()%7;
+	}
+
+	for(int i=0; i <2; i++) {
+		for(int j=i+1; j<3; j++) {
+			if(row[i] == row[j] && column[i] == column[j]) {
+				row[j] = rand()%7;
+				column[j] = rand()%3;
+			}
+		}
+	}
+
+	asteroid1 = asteroids(row[0], column[0]);
+	asteroid2 = asteroids(row[1], column[1]);
+	asteroid3 = asteroids(row[2], column[2]);
+
+}
+
+void resetAsteroid(struct position asteroid) {
+
+	if(asteroid.row == 0) {
+		lowerCharSegments[asteroid.column].a = 0;
+		}
+		else if(asteroid.row == 1) {
+		lowerCharSegments[asteroid.column].g = 0;
+		lowerCharSegments[asteroid.column].m = 0;
+		}
+		else if(asteroid.row == 2) {
+		lowerCharSegments[asteroid.column].d = 0;
+		}
+
+		SegmentLCD_LowerSegments(lowerCharSegments);
+
+}
+
+volatile char button;
+
+void UART0_RX_IRQHandler() {
+	button = USART_Rx(UART0) -32 ;
+	USART_Tx(UART0, button);
+}
+
+void gameOver() {
+	while(button != 'J' || button != 'B') {
+		SegmentLCD_Write('.......');
+
+	}
+	button = '0';
+	return;
+}
 
 
 int main(void)
@@ -148,20 +235,49 @@ int main(void)
   SegmentLCD_Init(false);
 
   int cntr = 0;
-  int cntr_tmp = 0;
 
   // az űrhajó kezdeti pozíciója
   struct spaceship spaceship = {{1, 0}, FORWARD};
 
+  randomgen();
+
+  /***************************************************************/
+  USART_InitAsync_TypeDef UART0_init = USART_INITASYNC_DEFAULT;
+
+  /* orajel */
+    CMU_ClockEnable(cmuClock_GPIO, true);
+    CMU_ClockEnable(cmuClock_UART0, true);
+
+    /* GPIO */
+    GPIO_PinModeSet(gpioPortF, 7, gpioModePushPull, 1);
+    GPIO_PinModeSet(gpioPortE, 0, gpioModePushPull, 1);
+    GPIO_PinModeSet(gpioPortE, 1, gpioModeInput, 0);
+
+    USART_InitAsync(UART0, &UART0_init);
+
+    /* labak kivezetese */
+    UART0->ROUTE |= USART_ROUTE_LOCATION_LOC1 | USART_ROUTE_TXPEN | USART_ROUTE_RXPEN;
+
+    USART_IntEnable(UART0, UART_IF_RXDATAV);
+
+    NVIC_EnableIRQ(UART0_RX_IRQn);
+
+
 
   while (1) {
+
 	  if(spaceship.dir == FORWARD) {
 		 horizontal(spaceship);
 		 spaceship.pos.column = spaceship.pos.column + 1;
 
 		 // ha elérte az űrhajó a pálya végét, akkor a pálya elejéről indul újra
-		 if (spaceship.pos.column == SEGMENT_LCD_NUM_OF_LOWER_CHARS)
+		 if (spaceship.pos.column == SEGMENT_LCD_NUM_OF_LOWER_CHARS) {
 				 spaceship.pos.column = 0;
+				 resetAsteroid(asteroid1);
+				 resetAsteroid(asteroid2);
+				 resetAsteroid(asteroid3);
+		 	 	 randomgen();
+		 }
 	 }
 
 	 else if(spaceship.dir == DOWN) {
@@ -187,21 +303,22 @@ int main(void)
 	 		 SegmentLCD_Number(cntr);
 	 	 }
 
-	 // tesztelés
+	  if(button == 'J') {
+		  spaceship.dir = changeDirection(spaceship.dir, RIGHT);
+		  button = '0';
+	  }
+	  else if(button == 'B') {
+		  spaceship.dir = changeDirection(spaceship.dir, LEFT);
+		  button = '0';
+	  }
 
-	 cntr_tmp += 1;
+	  if((spaceship.pos.row == asteroid1.row && spaceship.pos.column == asteroid1.column) ||
+		  (spaceship.pos.row == asteroid2.row && spaceship.pos.column == asteroid2.column) ||
+		  (spaceship.pos.row == asteroid2.row && spaceship.pos.column == asteroid2.column)){
+		  cntr = 0;
 
-	 if(cntr_tmp == 5)
-		 spaceship.dir = UP;
-	 if(cntr_tmp == 6)
-	 		 spaceship.dir = FORWARD;
-	 if(cntr_tmp == 12)
-	 		 spaceship.dir = DOWN;
-	 if(cntr_tmp == 14)
-	 		 spaceship.dir = FORWARD;
-	 if(cntr_tmp == 18)
-		 	 spaceship.dir = UP;
-	 if(cntr_tmp == 20)
-		 	 spaceship.dir = FORWARD;
+		  gameOver();
+	  }
   }
 }
+
