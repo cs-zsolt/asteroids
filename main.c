@@ -178,7 +178,7 @@ void UART0_RX_IRQHandler() {
 	USART_Tx(UART0, button);
 }
 
-void suspectGame() {
+void suspendGame() {
 	SegmentLCD_AllOff();
 	button = '0';
 	while(button == '0') {
@@ -294,7 +294,7 @@ int main(void)
 			  spaceship.dir = FORWARD;
 			  speed = 700;
 
-			  suspectGame();
+			  suspendGame();
 		  	  }
 	  	  }
   	  }
