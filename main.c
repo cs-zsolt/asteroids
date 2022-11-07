@@ -3,6 +3,8 @@
 #include "em_cmu.h"
 #include "em_usart.h"
 #include "em_gpio.h"
+#include "em_lcd.h"
+#include "time.h"
 
 #include "segmentlcd.h"
 
@@ -29,8 +31,19 @@ SegmentLCD_LowerCharSegments_TypeDef lowerCharSegments[SEGMENT_LCD_NUM_OF_LOWER_
     --------- 0,d --------     --------- 1,d --------
 */
 
-void delay() {
-   for(int d=0;d<600000;d++);
+volatile uint32_t msTicks;
+
+void Delay(uint32_t dlyTicks)
+{
+  uint32_t curTicks;
+
+  curTicks = msTicks;
+  while ((msTicks - curTicks) < dlyTicks) ; // busy-wait
+}
+
+void SysTick_Handler(void)
+{
+  msTicks++;       /* increment counter necessary in Delay()*/
 }
 
 enum direction {FORWARD, UP, DOWN};
@@ -48,49 +61,32 @@ struct spaceship {
 
 volatile char button;
 
-// vízszintes írányban halad az űrhajó
-void horizontal(struct spaceship spaceship) {
-
-	// adott szegmens bekapcsolása
-	setSegment(spaceship.pos);
-
-    delay();
-
-    // adott szegmens kikapcsolása
-    resetSegment(spaceship.pos);
-}
 
 // függőleges irányban halad az űrhajó
-void vertical(struct spaceship spaceship) {
-	// ha lefele halad, a megfelelő szegmens bekapcsolása
+void changeVerticalSegment(struct spaceship spaceship, int state) {
+	// ha lefele halad, a megfelelő szegmens be/kikapcsolása
 	if (spaceship.dir == DOWN) {
 		switch(spaceship.pos.row) {
 			case 1:
-				lowerCharSegments[spaceship.pos.column].f = 1;
+				lowerCharSegments[spaceship.pos.column].f = state;
 				break;
 			case 2:
-				lowerCharSegments[spaceship.pos.column].e = 1;
+				lowerCharSegments[spaceship.pos.column].e = state;
 				break;
 		}
 	}
-	// ha felfele halad, a megfelelő szegmens bekapcsolása
+	// ha felfele halad, a megfelelő szegmens be/kikapcsolása
 	else if (spaceship.dir == UP) {
 		switch(spaceship.pos.row) {
 			case 0:
-				lowerCharSegments[spaceship.pos.column].f = 1;
+				lowerCharSegments[spaceship.pos.column].f = state;
 				break;
 			case 1:
-				lowerCharSegments[spaceship.pos.column].e = 1;
+				lowerCharSegments[spaceship.pos.column].e = state;
 				break;
 		}
 	}
 	SegmentLCD_LowerSegments(lowerCharSegments);
-	delay();
-	// szegmens kikapcsolása
-	lowerCharSegments[spaceship.pos.column].f = 0;
-	lowerCharSegments[spaceship.pos.column].e = 0;
-	SegmentLCD_LowerSegments(lowerCharSegments);
-
 }
 
 // irányváltás
@@ -111,103 +107,68 @@ int changeDirection(enum direction direction, enum button button) {
 }
 
 
-void setSegment(struct position pos) {
+void changeHorizontalSegment(struct position pos, int state) {
 	switch(pos.row) {
 		case 0:
-			lowerCharSegments[pos.column].a = 1;
+			lowerCharSegments[pos.column].a = state;
 			break;
 		case 1:
-			lowerCharSegments[pos.column].g = 1;
-			lowerCharSegments[pos.column].m = 1;
+			lowerCharSegments[pos.column].g = state;
+			lowerCharSegments[pos.column].m = state;
 			break;
 		case 2:
-			lowerCharSegments[pos.column].d = 1;
+			lowerCharSegments[pos.column].d = state;
 			break;
 		}
 	 SegmentLCD_LowerSegments(lowerCharSegments);
 }
 
-void resetSegment(struct position pos) {
-	switch(pos.row) {
-	      	case 0:
-	      		lowerCharSegments[pos.column].a = 0;
-	      		break;
-	      	case 1:
-	      		// középen az űrhajó és az akadályok két szegmensből állnak
-	      		lowerCharSegments[pos.column].g = 0;
-	      		lowerCharSegments[pos.column].m = 0;
-	      		break;
-	      	case 2:
-	      		lowerCharSegments[pos.column].d = 0;
-	      		break;
-	      	}
-	    SegmentLCD_LowerSegments(lowerCharSegments);
-}
 
-struct position asteroids(int row, int column) {
-	if(row == 0) {
-	lowerCharSegments[column].a = 1;
-	}
-	else if(row == 1) {
-	lowerCharSegments[column].g = 1;
-	lowerCharSegments[column].m = 1;
-	}
-	else if(row == 2) {
-	lowerCharSegments[column].d = 1;
+void changeAsteroids(struct position asteroid[3], int state) {
+	for (int i = 0; i < 3; i++){
+		if(asteroid[i].row == 0) {
+		lowerCharSegments[asteroid[i].column].a = state;
+		}
+		else if(asteroid[i].row == 1) {
+		lowerCharSegments[asteroid[i].column].g = state;
+		lowerCharSegments[asteroid[i].column].m = state;
+		}
+		else if(asteroid[i].row == 2) {
+		lowerCharSegments[asteroid[i].column].d = state;
+		}
 	}
 
 	SegmentLCD_LowerSegments(lowerCharSegments);
-
-	struct position pos = {row, column};
-
-	return pos;
-
 }
 
-struct position asteroid1;
-struct position asteroid2;
-struct position asteroid3;
+struct position asteroids[3];
 
 
 void randomgen() {
-
-	int row[3];
-	int column[3];
+	srand(msTicks + rand());
 	for(int i = 0; i <3; i++) {
-		row[i] = rand()%3;
-		column[i] = rand()%7;
+		asteroids[i].row = rand() % 3;
+		asteroids[i].column = rand() % 5 + 2;
 	}
 
-	for(int i=0; i <2; i++) {
-		for(int j=i+1; j<3; j++) {
-			if(row[i] == row[j] && column[i] == column[j]) {
-				row[j] = rand()%7;
-				column[j] = rand()%3;
+	while((asteroids[0].row == asteroids[1].row && asteroids[1].column == asteroids[1].column) ||
+			(asteroids[1].row == asteroids[2].row && asteroids[1].column == asteroids[2].column) ||
+			(asteroids[2].row == asteroids[0].row && asteroids[2].column == asteroids[0].column)) {
+		for(int i = 0; i <3; i++) {
+				asteroids[i].row = rand() % 3;
+				asteroids[i].column = rand() % 5 + 2;
 			}
-		}
 	}
-
-	asteroid1 = asteroids(row[0], column[0]);
-	asteroid2 = asteroids(row[1], column[1]);
-	asteroid3 = asteroids(row[2], column[2]);
-
 }
 
-void resetAsteroid(struct position asteroid) {
+void changeDPs(bool state) {
+	LCD_SegmentSet(LCD_SYMBOL_DP2_COM,LCD_SYMBOL_DP2_SEG, state);
+	LCD_SegmentSet(LCD_SYMBOL_DP3_COM,LCD_SYMBOL_DP3_SEG, state);
+	LCD_SegmentSet(LCD_SYMBOL_DP4_COM,LCD_SYMBOL_DP4_SEG, state);
+	LCD_SegmentSet(LCD_SYMBOL_DP5_COM,LCD_SYMBOL_DP5_SEG, state);
+	LCD_SegmentSet(LCD_SYMBOL_DP6_COM,LCD_SYMBOL_DP6_SEG, state);
 
-	if(asteroid.row == 0) {
-		lowerCharSegments[asteroid.column].a = 0;
-		}
-		else if(asteroid.row == 1) {
-		lowerCharSegments[asteroid.column].g = 0;
-		lowerCharSegments[asteroid.column].m = 0;
-		}
-		else if(asteroid.row == 2) {
-		lowerCharSegments[asteroid.column].d = 0;
-		}
-
-		SegmentLCD_LowerSegments(lowerCharSegments);
-
+	Delay(500);
 }
 
 volatile char button;
@@ -217,10 +178,12 @@ void UART0_RX_IRQHandler() {
 	USART_Tx(UART0, button);
 }
 
-void gameOver() {
-	while(button != 'J' || button != 'B') {
-		SegmentLCD_Write('.......');
-
+void suspectGame() {
+	SegmentLCD_AllOff();
+	button = '0';
+	while(button == '0') {
+		changeDPs(true);
+		changeDPs(false);
 	}
 	button = '0';
 	return;
@@ -240,6 +203,7 @@ int main(void)
   struct spaceship spaceship = {{1, 0}, FORWARD};
 
   randomgen();
+  changeAsteroids(asteroids, 1);
 
   /***************************************************************/
   USART_InitAsync_TypeDef UART0_init = USART_INITASYNC_DEFAULT;
@@ -262,21 +226,31 @@ int main(void)
 
     NVIC_EnableIRQ(UART0_RX_IRQn);
 
+    if (SysTick_Config(CMU_ClockFreqGet(cmuClock_CORE) / 1000)) {
+        while (1) ;
+      }
 
+    int speed = 700;
 
   while (1) {
 
 	  if(spaceship.dir == FORWARD) {
-		 horizontal(spaceship);
+		 changeHorizontalSegment(spaceship.pos, 1);
+		 Delay(speed);
+		 changeHorizontalSegment(spaceship.pos, 0);
 		 spaceship.pos.column = spaceship.pos.column + 1;
 
 		 // ha elérte az űrhajó a pálya végét, akkor a pálya elejéről indul újra
 		 if (spaceship.pos.column == SEGMENT_LCD_NUM_OF_LOWER_CHARS) {
 				 spaceship.pos.column = 0;
-				 resetAsteroid(asteroid1);
-				 resetAsteroid(asteroid2);
-				 resetAsteroid(asteroid3);
+				 changeAsteroids(asteroids, 0);
 		 	 	 randomgen();
+		 	 	 changeAsteroids(asteroids, 1);
+		 	 	 if(speed > 400) {
+		 	 		 speed -= 30;
+		 	 	 }
+		 	 	cntr++;
+		 	 	SegmentLCD_Number(cntr);
 		 }
 	 }
 
@@ -286,7 +260,9 @@ int main(void)
 		  case 1: spaceship.pos.row = 2; break;
 		  case 2: spaceship.pos.row = 1; break;
 		 }
-		 vertical(spaceship);
+		 changeVerticalSegment(spaceship, 1);
+		 Delay(speed);
+		 changeVerticalSegment(spaceship, 0);
 	 }
 
 	 else if (spaceship.dir == UP) {
@@ -295,13 +271,10 @@ int main(void)
 	   	    case 1: spaceship.pos.row = 0; break;
 	   	    case 2: spaceship.pos.row = 1; break;
 		 }
-		 vertical(spaceship);
+		 changeVerticalSegment(spaceship, 1);
+		 Delay(speed);
+		 changeVerticalSegment(spaceship, 0);
 	 }
-
-	  if(spaceship.pos.column == 0) {
-	 		 cntr++;
-	 		 SegmentLCD_Number(cntr);
-	 	 }
 
 	  if(button == 'J') {
 		  spaceship.dir = changeDirection(spaceship.dir, RIGHT);
@@ -312,13 +285,17 @@ int main(void)
 		  button = '0';
 	  }
 
-	  if((spaceship.pos.row == asteroid1.row && spaceship.pos.column == asteroid1.column) ||
-		  (spaceship.pos.row == asteroid2.row && spaceship.pos.column == asteroid2.column) ||
-		  (spaceship.pos.row == asteroid2.row && spaceship.pos.column == asteroid2.column)){
-		  cntr = 0;
 
-		  gameOver();
-	  }
-  }
+	  for(int i = 0; i < 3; i++) {
+		  if(spaceship.dir == FORWARD && spaceship.pos.row == asteroids[i].row && spaceship.pos.column == asteroids[i].column) {
+			  cntr = 0;
+			  spaceship.pos.row = 1;
+			  spaceship.pos.column = 0;
+			  spaceship.dir = FORWARD;
+			  speed = 700;
+
+			  suspectGame();
+		  	  }
+	  	  }
+  	  }
 }
-
