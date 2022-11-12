@@ -5,10 +5,8 @@
 #include "em_lcd.h"
 #include "em_timer.h"
 #include "em_gpio.h"
-
 #include "segmentlcd.h"
 #include "segmentlcd_individual.h"
-
 
 SegmentLCD_UpperCharSegments_TypeDef upperCharSegments[SEGMENT_LCD_NUM_OF_UPPER_CHARS];
 SegmentLCD_LowerCharSegments_TypeDef lowerCharSegments[SEGMENT_LCD_NUM_OF_LOWER_CHARS];
@@ -30,9 +28,6 @@ struct spaceship {
 	struct position pos;
 	enum direction dir;
 };
-
-struct position asteroids[3];
-
 
 void UART0_RX_IRQHandler() {
 	button = USART_Rx(UART0) -32 ;
@@ -120,18 +115,6 @@ void changeAsteroidsSegment(struct position asteroid[3], bool state) {
 	}
 }
 
-void generateRandomAsteroids() {
-	srand(TIMER0->CNT);
-	do {
-		for(int i = 0; i <3; i++) {
-				asteroids[i].row = i;
-				asteroids[i].column = rand() % 5 + 1;
-			}
-	} while(asteroids[0].column == asteroids[1].column ||
-			  asteroids[0].column == asteroids[2].column ||
-			  asteroids[1].column == asteroids[2].column);
-}
-
 // tizedespontokat be/kikapcsoló függvény
 void changeDPs(bool state) {
 	LCD_SegmentSet(LCD_SYMBOL_DP2_COM,LCD_SYMBOL_DP2_SEG, state);
@@ -139,6 +122,22 @@ void changeDPs(bool state) {
 	LCD_SegmentSet(LCD_SYMBOL_DP4_COM,LCD_SYMBOL_DP4_SEG, state);
 	LCD_SegmentSet(LCD_SYMBOL_DP5_COM,LCD_SYMBOL_DP5_SEG, state);
 	LCD_SegmentSet(LCD_SYMBOL_DP6_COM,LCD_SYMBOL_DP6_SEG, state);
+}
+
+
+
+struct position asteroids[3];
+
+void randomgen() {
+	srand(TIMER0->CNT);
+	do {
+		for(int i = 0; i < 3; i++) {
+				asteroids[i].row = i;
+				asteroids[i].column = rand() % 6 + 1;
+			}
+	} while(asteroids[0].column == asteroids[1].column ||
+			  asteroids[0].column == asteroids[2].column ||
+			  asteroids[1].column == asteroids[2].column);
 }
 
 
@@ -154,7 +153,6 @@ void gameOver() {
 		Delay();
 	}
 	button = '0';
-	return;
 }
 
 
@@ -170,8 +168,10 @@ int main(void)
   // az űrhajó kezdeti pozíciója
   struct spaceship spaceship = {{1, 0}, FORWARD};
 
-  generateRandomAsteroids();
-  changeAsteroidsSegment(asteroids, 1);
+  int speed = STARTING_SPEED;
+
+  randomgen(); // random aszteroidák generálása
+  changeAsteroidsSegment(asteroids, 1); // az aszteroidák szegmenseinek bekapcsolása
 
   /***************************************************************/
   USART_InitAsync_TypeDef UART0_init = USART_INITASYNC_DEFAULT;
@@ -194,7 +194,7 @@ int main(void)
 
     NVIC_EnableIRQ(UART0_RX_IRQn);
 
-    int speed = STARTING_SPEED;
+    /********************************************************************/
 
     CMU_ClockDivSet(cmuClock_HFPER, cmuClkDiv_1);
     CMU_ClockEnable(cmuClock_TIMER0, true);
@@ -212,7 +212,9 @@ int main(void)
     TIMER_IntEnable(TIMER0, TIMER_IF_OF);
     NVIC_EnableIRQ(TIMER0_IRQn);
 
-    gameOver();
+    /**********************************************************************/
+
+    gameOver(); // várakozás egy karakter érkezésére a soros porton, ezután indul a játék
 
   while (1) {
 
@@ -226,7 +228,7 @@ int main(void)
 		 if (spaceship.pos.column == SEGMENT_LCD_NUM_OF_LOWER_CHARS) {
 				 spaceship.pos.column = 0;
 				 changeAsteroidsSegment(asteroids, false);
-		 	 	 generateRandomAsteroids();
+				 randomgen();
 		 	 	 changeAsteroidsSegment(asteroids, true);
 
 		 	 	 // játék gyorsítása
@@ -285,3 +287,4 @@ int main(void)
 	  	  }
   	  }
 }
+
